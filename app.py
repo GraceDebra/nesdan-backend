@@ -7,7 +7,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://nesdan.vercel.app", "http://localhost:3000", "http://localhost:3001", "http://localhost:3002"], supports_credentials=True)
 
 # Secret Key
 app.config['SECRET_KEY'] = 'your_secret_key_here'  # Keep it safe
@@ -47,6 +47,10 @@ ADMIN = {
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Allow OPTIONS requests to pass through without token validation
+        if request.method == 'OPTIONS':
+            return f(*args, **kwargs)
+            
         token = request.headers.get('Authorization', None)
         if not token:
             return jsonify({'error': 'Token missing'}), 401
@@ -56,9 +60,20 @@ def token_required(f):
             return jsonify({'error': 'Token invalid or expired'}), 401
         return f(*args, **kwargs)
     return decorated
-
 # --- Routes ---
 
+# CORS Test Route
+@app.route('/test-cors', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
+def test_cors():
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'OPTIONS request received'}), 200
+    return jsonify({
+        'message': 'CORS test successful',
+        'method': request.method,
+        'origin': request.headers.get('Origin'),
+        'headers': dict(request.headers)
+    }), 200
+    
 # Login Route
 @app.route('/login', methods=['POST'])
 def login():
@@ -69,6 +84,7 @@ def login():
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, app.config['SECRET_KEY'], algorithm='HS256')
         return jsonify({'token': token})
+    
     return jsonify({'error': 'Invalid credentials'}), 401
 
 # Get all events (public)
@@ -95,13 +111,12 @@ def add_event():
     db.session.commit()
     return jsonify({'message': 'Event added successfully!', 'event': new_event.to_dict()}), 201
 
-# Delete event (protected)
 @app.route('/events/<int:event_id>', methods=['DELETE', 'OPTIONS'])
 @token_required
 def delete_event(event_id):
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-
+        
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'error': 'Event not found'}), 404
